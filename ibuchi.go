@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"sort"
 	"strings"
 	"sync"
@@ -11,6 +13,8 @@ import (
 )
 
 var bot *tgbotapi.BotAPI
+
+const dataFilePath = "R:/golang/ebuchi/userdata.json"
 
 const ModeHTML = "HTML"
 
@@ -38,14 +42,56 @@ func connectWithTelegram() {
 	}
 }
 
+func loadUserData() {
+	fileData, err := ioutil.ReadFile(dataFilePath)
+	if err != nil {
+		fmt.Println("Error reading data file:", err)
+		return
+	}
+
+	userDataMu.Lock()
+	defer userDataMu.Unlock()
+
+	err = json.Unmarshal(fileData, &userData)
+	if err != nil {
+		fmt.Println("Error unmarshalling data:", err)
+		return
+	}
+}
+
+func saveUserData() {
+	userDataMu.Lock()
+	defer userDataMu.Unlock()
+
+	fileData, err := json.Marshal(userData)
+	if err != nil {
+		fmt.Println("Ошибка при маршалинге данных:", err)
+		return
+	}
+
+	err = ioutil.WriteFile(dataFilePath, fileData, 0644)
+	if err != nil {
+		fmt.Println("Ошибка при записи файла данных:", err)
+	}
+}
+
+func resetThrows() {
+	for {
+		currentTime := time.Now().UTC()
+		if currentTime.Hour() == 0 && currentTime.Minute() == 0 && currentTime.Second() == 0 {
+			userDataMu.Lock()
+			for _, user := range userData {
+				user.GamesPlayed = 0
+			}
+			userDataMu.Unlock()
+		}
+		time.Sleep(1 * time.Minute) // Проверка каждую минуту
+	}
+}
+
 func sendMessage(chatID int64, msg string) {
 	msgConfig := tgbotapi.NewMessage(chatID, msg)
 	bot.Send(msgConfig)
-}
-
-func sendBasketball(chatID int64) {
-	// Отправляем emoji баскетбольного мяча
-	bot.Send(tgbotapi.NewDiceWithEmoji(chatID, "🏀"))
 }
 
 func isMessageForIbuchi(update *tgbotapi.Update) bool {
@@ -174,6 +220,8 @@ func showTopPlayers(chatID int64) {
 
 func main() {
 	connectWithTelegram()
+	loadUserData()
+	go resetThrows()
 	updateConfig := tgbotapi.NewUpdate(0)
 	updates := bot.GetUpdatesChan(updateConfig)
 
@@ -205,6 +253,7 @@ func main() {
 				if isMessageForIbuchi(&update) {
 					sendMessage(chatID, "Ты кинул мяч!\nСейчас посмотрим, что получится!😯")
 					evaluateUserThrow(&update)
+					saveUserData() // Сохранение данных после каждого броска
 				}
 			}
 		}
