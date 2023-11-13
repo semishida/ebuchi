@@ -26,6 +26,7 @@ type UserData struct {
 	GamesPlayed    int       // Количество сыгранных игр
 	IsBlacklisted  bool      // Признак нахождения в черном списке
 	SpamProtection int       // Защита от спама
+	ThrowsToRest   int       // Количество бросков до отдыха
 }
 
 var (
@@ -43,7 +44,8 @@ func connectWithTelegram() {
 }
 
 func loadUserData() {
-	fileData, err := ioutil.ReadFile(dataFilePath)
+	// В функции saveUserData добавляем поле ThrowsToRest при маршалинге данных
+	fileData, err := json.Marshal(userData)
 	if err != nil {
 		fmt.Println("Error reading data file:", err)
 		return
@@ -54,9 +56,11 @@ func loadUserData() {
 
 	err = json.Unmarshal(fileData, &userData)
 	if err != nil {
-		fmt.Println("Error unmarshalling data:", err)
+		fmt.Println("Ошибка при маршалинге данных:", err)
 		return
 	}
+
+	err = ioutil.WriteFile(dataFilePath, fileData, 0644)
 }
 
 func saveUserData() {
@@ -114,7 +118,7 @@ func evaluateUserThrow(update *tgbotapi.Update) {
 
 	user, ok := userData[update.Message.From.ID]
 	if !ok {
-		user = &UserData{Balance: 50} // Новый пользователь получает 50 монет
+		user = &UserData{Balance: 50, ThrowsToRest: 5} // Новый пользователь получает 50 монет и 5 бросков до отдыха
 		userData[update.Message.From.ID] = user
 	}
 
@@ -138,7 +142,7 @@ func evaluateUserThrow(update *tgbotapi.Update) {
 		user.Balance += 5
 	}
 
-	sendMessage(update.Message.Chat.ID, fmt.Sprintf("Твой бросок на: %d из 5.\nБаланс: %d монеток\n‼️У тебя осталось %d броска(ов) перед перерывом.‼️", diceValue, user.Balance, 4-user.GamesPlayed))
+	sendMessage(update.Message.Chat.ID, fmt.Sprintf("Твой бросок на: %d из 5.\nБаланс: %d монеток\n‼️У тебя осталось %d броска(ов) перед перерывом.‼️", diceValue, user.Balance, user.ThrowsToRest))
 
 	// Обновляем время последней игры и timestamp
 	user.LastGameTime = time.Now()
@@ -149,8 +153,11 @@ func evaluateUserThrow(update *tgbotapi.Update) {
 
 	// Если пользователь сыграл 5 раз, обнуляем счетчик и запускаем защиту на 10 минут
 	if user.GamesPlayed == 5 {
-		sendMessage(update.Message.Chat.ID, "Чел, ты люто запотел🥵.\nПокидаешь через 24 часа.")
+		sendMessage(update.Message.Chat.ID, fmt.Sprintf("Чел, ты люто запотел🥵.\nПокидаешь через 24 часа. Отдыхай!"))
 		spamProtection[update.Message.From.ID] = time.Now()
+		user.ThrowsToRest = 5
+	} else {
+		user.ThrowsToRest--
 	}
 }
 
