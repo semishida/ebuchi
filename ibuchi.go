@@ -93,8 +93,9 @@ func resetThrows() {
 	}
 }
 
-func sendMessage(chatID int64, msg string) {
+func sendMessageWithReply(chatID int64, msg string, replyToMessageID int) {
 	msgConfig := tgbotapi.NewMessage(chatID, msg)
+	msgConfig.ReplyToMessageID = replyToMessageID
 	bot.Send(msgConfig)
 }
 
@@ -125,7 +126,7 @@ func evaluateUserThrow(update *tgbotapi.Update) {
 	// Проверка на защиту от спама
 	if protectionTime, exists := spamProtection[update.Message.From.ID]; exists && time.Since(protectionTime) < 24*time.Hour {
 		// Пользователь пытается сыграть в течение 24 часов после достижения лимита
-		sendMessage(update.Message.Chat.ID, "Чел, ты люто запотел🥵.\nПокидаешь через 24 часа.")
+		sendMessageWithReply(update.Message.Chat.ID, "Чел, ты люто запотел🥵.\nПокидаешь через 24 часа.", update.Message.MessageID)
 		return
 	}
 
@@ -142,7 +143,8 @@ func evaluateUserThrow(update *tgbotapi.Update) {
 		user.Balance += 5
 	}
 
-	sendMessage(update.Message.Chat.ID, fmt.Sprintf("Твой бросок на: %d из 5.\nБаланс: %d монеток\n‼️У тебя осталось %d броска(ов) перед перерывом.‼️", diceValue, user.Balance, user.ThrowsToRest))
+	// Отправляем сообщение как ответ на сообщение пользователя
+	sendMessageWithReply(update.Message.Chat.ID, fmt.Sprintf("Твой бросок на: %d из 5.\nБаланс: %d монеток\n‼️У тебя осталось %d броска(ов) перед перерывом.‼️", diceValue, user.Balance, user.ThrowsToRest-1), update.Message.MessageID)
 
 	// Обновляем время последней игры и timestamp
 	user.LastGameTime = time.Now()
@@ -151,9 +153,9 @@ func evaluateUserThrow(update *tgbotapi.Update) {
 	// Увеличиваем количество сыгранных игр
 	user.GamesPlayed++
 
-	// Если пользователь сыграл 5 раз, обнуляем счетчик и запускаем защиту на 10 минут
+	// Если пользователь сыграл 5 раз, обнуляем счетчик, уменьшаем броски до отдыха и запускаем защиту на 10 минут
 	if user.GamesPlayed == 5 {
-		sendMessage(update.Message.Chat.ID, fmt.Sprintf("Чел, ты люто запотел🥵.\nПокидаешь через 24 часа. Отдыхай!"))
+		sendMessageWithReply(update.Message.Chat.ID, "Чел, ты люто запотел🥵.\nПокидаешь через 24 часа. Отдыхай!\nВаш отдых можно закончить после 00:00 по Гринвичу!😮‍💨\n(03:00 по МСК)🤓", update.Message.MessageID)
 		spamProtection[update.Message.From.ID] = time.Now()
 		user.ThrowsToRest = 5
 	} else {
@@ -196,12 +198,6 @@ func showTopPlayers(chatID int64) {
 		}{UserName: userName, Balance: data.Balance})
 	}
 
-	// Проверяем, есть ли вообще пользователи
-	if len(sortedUsers) == 0 {
-		sendMessage(chatID, "Пока нет данных о пользователях.")
-		return
-	}
-
 	// Сортировка по убыванию баланса
 	sort.Slice(sortedUsers, func(i, j int) bool {
 		return sortedUsers[i].Balance > sortedUsers[j].Balance
@@ -216,13 +212,17 @@ func showTopPlayers(chatID int64) {
 	if len(sortedUsers) < 10 {
 		topCount = len(sortedUsers)
 	}
-
+	// Проверяем, есть ли вообще пользователи
+	if len(sortedUsers) == 0 {
+		sendMessageWithReply(chatID, topMessage.String(), 0)
+		return
+	}
 	for i := 0; i < topCount; i++ {
 		// Добавляем информацию в сообщение
 		topMessage.WriteString(fmt.Sprintf("%d. %s: %d монет\n", i+1, sortedUsers[i].UserName, sortedUsers[i].Balance))
 	}
 
-	sendMessage(chatID, topMessage.String())
+	sendMessageWithReply(chatID, topMessage.String(), 0)
 }
 
 func main() {
@@ -258,7 +258,7 @@ func main() {
 				showTopPlayers(chatID)
 			default:
 				if isMessageForIbuchi(&update) {
-					sendMessage(chatID, "Ты кинул мяч!\nСейчас посмотрим, что получится!😯")
+					sendMessageWithReply(chatID, "Ты кинул мяч!\nСейчас посмотрим, что получится!😯", update.Message.MessageID)
 					evaluateUserThrow(&update)
 					saveUserData() // Сохранение данных после каждого броска
 				}
